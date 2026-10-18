@@ -23,9 +23,17 @@ ELEC_AVAIL_MAX = 3      # 电子部件车间的低库存阈值
 
 
 def load(path):
+    """读取并以 order_id 去重（保留首条），返回 (行, 删除的重复行数)。"""
     rows = []
+    seen = set()
+    duplicates = 0
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
+            order_id = r.get("order_id")
+            if order_id in seen:
+                duplicates += 1
+                continue
+            seen.add(order_id)
             r["dispatch_time"] = datetime.fromisoformat(r["dispatch_time"])
             r["stock_synced_at"] = datetime.fromisoformat(
                 r["stock_synced_at"].replace("Z", "+00:00")
@@ -37,7 +45,7 @@ def load(path):
             r["planned_batch"] = int(r["planned_batch"])
             r["kit_ok"] = None if r["kit_ok"].strip() == "" else int(r["kit_ok"])
             rows.append(r)
-    return rows
+    return rows, duplicates
 
 
 def rate(sub):
@@ -86,7 +94,7 @@ def evaluate(rows, rule):
 
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "kit_orders.csv"
-    rows = load(path)
+    rows, duplicates = load(path)
     labeled = [r for r in rows if r["kit_ok"] is not None]
     unlabeled = [r for r in rows if r["kit_ok"] is None]
     failures = sum(1 for r in labeled if r["kit_ok"] == 0)
@@ -94,7 +102,8 @@ def main():
     print("=" * 70)
     print("1. 数据概况")
     print("=" * 70)
-    print(f"总行数={len(rows)}  有标签={len(labeled)}  未标注 kit_ok={len(unlabeled)}")
+    print(f"去重后记录数={len(rows)}（按 order_id 删除重复流水 {duplicates} 条）  "
+          f"有标签={len(labeled)}  未标注 kit_ok={len(unlabeled)}")
     print(f"日期范围={min(r['dispatch_time'] for r in labeled).date()} ~ "
           f"{max(r['dispatch_time'] for r in labeled).date()}")
     print(f"有标签工单: 齐套={len(labeled) - failures}  缺料={failures}  "

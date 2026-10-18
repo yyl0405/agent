@@ -23,14 +23,22 @@ CSV_PATH = "kit_orders.csv"
 SHORTAGE_MIN = 120
 WARN_MIN = 20
 ELEC = kg.DEFAULT_PARAMS.elec_workshop
-LABELED_EXPECTED = {"warned": 185, "tp": 90, "fp": 95, "fn": 10}
+LABELED_EXPECTED = {"warned": 173, "tp": 86, "fp": 87, "fn": 10}
 
 
 def load(path):
     import csv
     rows = []
+    seen = set()
+    duplicates = 0
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
+            order_id = (r.get("order_id") or "").strip()
+            if order_id and order_id in seen:
+                duplicates += 1
+                continue
+            if order_id:
+                seen.add(order_id)
             r["dispatch_time"] = kg.parse_ts(r["dispatch_time"])
             r["stock_synced_at"] = kg.parse_ts(r["stock_synced_at"])
             r["lag_m"] = kg.snapshot_lag_minutes(r["dispatch_time"],
@@ -39,7 +47,7 @@ def load(path):
             r["planned_batch"] = int(r["planned_batch"])
             r["kit_ok"] = None if r["kit_ok"].strip() == "" else int(r["kit_ok"])
             rows.append(r)
-    return rows
+    return rows, duplicates
 
 
 def decision(row, params=kg.DEFAULT_PARAMS):
@@ -89,12 +97,13 @@ def section(title):
 
 
 def main():
-    rows = load(CSV_PATH)
+    rows, duplicates = load(CSV_PATH)
     labeled = [r for r in rows if r["kit_ok"] is not None]
     dates = sorted(set(r["dispatch_time"].date() for r in labeled))
 
     section("0. 规则与数据")
-    print(f"数据: {CSV_PATH}  有标签 {len(labeled)} / 总 {len(rows)}")
+    print(f"数据: {CSV_PATH}  去重后 {len(rows)} 行"
+          f"（删除重复流水 {duplicates} 条），有标签 {len(labeled)}")
     print("规则 R2: 电子部件车间 avail<=3 -> HOLD；其他车间 快照滞后>=10min -> HOLD")
 
     full = metrics(labeled)

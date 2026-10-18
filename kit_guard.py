@@ -106,10 +106,25 @@ def assess_row(row, params: GateParams = DEFAULT_PARAMS):
 
 
 def process_csv(input_path, output_path=None, params: GateParams = DEFAULT_PARAMS):
-    """批量评估 CSV，返回汇总 dict；可选写出带判定列的 CSV。"""
+    """批量评估 CSV，返回汇总 dict；可选写出带判定列的 CSV。
+
+    按 order_id 去重（保留首条），避免重复流水重复占用预警/查询配额。
+    """
     with open(input_path, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-        fieldnames = list(rows[0].keys()) if rows else []
+        raw_rows = list(csv.DictReader(f))
+        fieldnames = list(raw_rows[0].keys()) if raw_rows else []
+
+    rows = []
+    seen = set()
+    duplicates = 0
+    for row in raw_rows:
+        order_id = (row.get("order_id") or "").strip()
+        if order_id:
+            if order_id in seen:
+                duplicates += 1
+                continue
+            seen.add(order_id)
+        rows.append(row)
 
     results = []
     for row in rows:
@@ -118,6 +133,7 @@ def process_csv(input_path, output_path=None, params: GateParams = DEFAULT_PARAM
 
     summary = {
         "total": len(results),
+        "duplicates_removed": duplicates,
         "hold": sum(1 for _, r in results if r["decision"] == HOLD),
         "release": sum(1 for _, r in results if r["decision"] == RELEASE),
         "by_reason": {},
@@ -177,6 +193,8 @@ def main():
     summary = process_csv(args.input, args.output, params)
 
     print(f"记录总数: {summary['total']}")
+    if summary["duplicates_removed"]:
+        print(f"已按 order_id 去重: 删除重复流水 {summary['duplicates_removed']} 条")
     print(f"高风险 HOLD: {summary['hold']}  "
           f"放行 RELEASE: {summary['release']}")
     print("原因分布:")

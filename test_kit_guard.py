@@ -108,6 +108,7 @@ class BatchCsvTests(unittest.TestCase):
         try:
             summary = kg.process_csv(in_path, out_path)
             self.assertEqual(summary["total"], 5)
+            self.assertEqual(summary["duplicates_removed"], 0)
             self.assertEqual(summary["hold"], 3)
             self.assertEqual(summary["release"], 2)
             self.assertEqual(summary["labeled_failures"], 2)
@@ -129,17 +130,33 @@ class BatchCsvTests(unittest.TestCase):
                 if os.path.exists(path):
                     os.unlink(path)
 
+    def test_duplicate_order_id_is_removed(self):
+        row = dict(order_id="1", dispatch_time="2026-09-01T07:00:00+08:00",
+                   stock_synced_at="2026-08-31T22:55:00Z", workshop="一号装配车间",
+                   part_type="伺服电机", avail_qty="10", planned_batch="50",
+                   kit_ok="1")
+        in_path = self._write_csv([row, dict(row)])  # 同 order_id 的重复流水
+        try:
+            summary = kg.process_csv(in_path)
+            self.assertEqual(summary["total"], 1)
+            self.assertEqual(summary["duplicates_removed"], 1)
+            self.assertEqual(summary["release"], 1)
+        finally:
+            if os.path.exists(in_path):
+                os.unlink(in_path)
+
     def test_production_rule_matches_analysis_on_full_dataset(self):
         """生产闸门在原始数据上的判定必须与 README/analyze.py 的回测一致。"""
         self.assertTrue(os.path.exists(DATA), "kit_orders.csv 缺失")
         summary = kg.process_csv(DATA)
-        self.assertEqual(summary["total"], 1036)
-        # 全量 190 条 HOLD：其中 185 条有标签、5 条未标注
-        self.assertEqual(summary["hold"], 190)
-        self.assertEqual(summary["release"], 846)
-        self.assertEqual(summary["labeled_failures"], 100)
-        self.assertEqual(summary["labeled_tp"], 90)
-        self.assertEqual(summary["labeled_fp"], 95)
+        # 原始 1036 行含 49 条重复 order_id，去重后 987 行
+        self.assertEqual(summary["duplicates_removed"], 49)
+        self.assertEqual(summary["total"], 987)
+        self.assertEqual(summary["hold"], 178)
+        self.assertEqual(summary["release"], 809)
+        self.assertEqual(summary["labeled_failures"], 96)
+        self.assertEqual(summary["labeled_tp"], 86)
+        self.assertEqual(summary["labeled_fp"], 87)
 
 
 if __name__ == "__main__":
